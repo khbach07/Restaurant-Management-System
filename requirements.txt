@@ -1,0 +1,9 @@
+PyQt5
+pymysql
+numpy
+pandas
+matplotlib
+qtawesome
+scipy
+python-dotenv
+cryptography
