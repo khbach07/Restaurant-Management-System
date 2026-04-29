@@ -1,10 +1,7 @@
-print("1. Bắt đầu khởi động App...")
 import sys
 import os
 import re
 import datetime
-
-print("2. Đang nạp PyQt5...")
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QPushButton, QFrame, QGraphicsDropShadowEffect,
                              QScrollArea, QGridLayout, QStackedWidget, QMessageBox,
@@ -13,14 +10,9 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, pyqtSignal, QDate, QSize
 from PyQt5.QtGui import QFont, QCursor, QColor, QPixmap, QTextCharFormat, QPainter, QPainterPath
 from dotenv import load_dotenv
-print("3. Đang nạp QtAwesome (Icon)...")
 import qtawesome as qta
-
-print("4. Đang nạp PyMySQL (Giải pháp chống Crash)...")
 import pymysql
 import pymysql.cursors
-
-print("5. Tuyệt vời! Mọi thứ an toàn. Đang dựng giao diện...")
 
 MODERN_FONT = "'Nunito', 'Segoe UI', sans-serif"
 
@@ -155,16 +147,28 @@ class DatabaseManager:
             # Kỹ thuật tìm kiếm LIKE: Thêm % ở 2 đầu để tìm 1, 2 chữ bất kỳ trong tên
             search_term = f"%{keyword}%"
             
-            query = f"""
-                SELECT r.TableID, c.CustomerName, 
-                       CAST(AES_DECRYPT(UNHEX(c.PhoneNumber), '{self.aes_key}') AS CHAR) as Phone
-                FROM Reservations r
-                JOIN Customers c ON r.CustomerID = c.CustomerID
-                WHERE CAST(AES_DECRYPT(UNHEX(c.PhoneNumber), '{self.aes_key}') AS CHAR) LIKE %s
-                   OR c.CustomerName LIKE %s
-                ORDER BY r.DateTime DESC
-            """
-            cursor.execute(query, (search_term, search_term))
+            # Nếu keyword toàn số và ngắn (≤ 4 ký tự) → tìm theo RIGHT (3-4 số cuối)
+            if keyword.isdigit() and len(keyword) <= 4:
+                query = f"""
+                    SELECT r.TableID, c.CustomerName, 
+                        CAST(AES_DECRYPT(UNHEX(c.PhoneNumber), '{self.aes_key}') AS CHAR) as Phone
+                    FROM Reservations r
+                    JOIN Customers c ON r.CustomerID = c.CustomerID
+                    WHERE RIGHT(CAST(AES_DECRYPT(UNHEX(c.PhoneNumber), '{self.aes_key}') AS CHAR), %s) = %s
+                    ORDER BY r.DateTime DESC
+                """
+                cursor.execute(query, (len(keyword), keyword))
+            else:
+                query = f"""
+                    SELECT r.TableID, c.CustomerName, 
+                        CAST(AES_DECRYPT(UNHEX(c.PhoneNumber), '{self.aes_key}') AS CHAR) as Phone
+                    FROM Reservations r
+                    JOIN Customers c ON r.CustomerID = c.CustomerID
+                    WHERE CAST(AES_DECRYPT(UNHEX(c.PhoneNumber), '{self.aes_key}') AS CHAR) LIKE %s
+                    OR c.CustomerName LIKE %s
+                    ORDER BY r.DateTime DESC
+                """
+                cursor.execute(query, (search_term, search_term))
             res = cursor.fetchall()
             conn.close()
             return res # Trả về 1 mảng danh sách các kết quả tìm được
@@ -657,9 +661,30 @@ class ReservationPane(QFrame):
         """)
         cal_layout.addWidget(self.calendar, alignment=Qt.AlignCenter); cal_container.setLayout(cal_layout)
 
-        self.btn_prev_month.clicked.connect(self.calendar.showPreviousMonth); self.btn_next_month.clicked.connect(self.calendar.showNextMonth)
-        self.calendar.currentPageChanged.connect(self.update_calendar_header); self.calendar.clicked.connect(self.update_date_input)
-        layout.addWidget(cal_container); self.update_calendar_header(self.calendar.yearShown(), self.calendar.monthShown())
+        def go_prev_month():
+            current = QDate.currentDate()
+            if (self.calendar.yearShown(), self.calendar.monthShown()) > (current.year(), current.month()):
+                self.calendar.showPreviousMonth()
+
+        self.btn_prev_month.clicked.connect(go_prev_month)
+        self.btn_next_month.clicked.connect(self.calendar.showNextMonth)
+        def on_page_changed(year, month):
+            self.update_calendar_header(year, month)
+            self.apply_past_dates_style()
+
+        self.calendar.currentPageChanged.connect(on_page_changed)
+
+        def on_date_clicked(date):
+            if date >= QDate.currentDate():
+                self.update_date_input(date)
+            else:
+                # Giữ nguyên lựa chọn cũ, không cập nhật
+                pass
+
+        self.calendar.clicked.connect(on_date_clicked)
+        layout.addWidget(cal_container)
+        self.update_calendar_header(self.calendar.yearShown(), self.calendar.monthShown())
+        self.apply_past_dates_style()
 
         time_v_layout = QVBoxLayout(); time_v_layout.setContentsMargins(0, 0, 0, 0); time_v_layout.setSpacing(5); lbl_time = QLabel("Time to come"); lbl_time.setStyleSheet(f"color: #6B7280; font-family: {MODERN_FONT}; font-weight: bold; border: none;"); time_v_layout.addWidget(lbl_time)
         self.time_picker = QComboBox(); self.time_picker.setStyleSheet(f"QComboBox {{ background-color: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 8px; padding: 12px 15px 12px 45px; font-family: {MODERN_FONT}; font-size: 14px; color: #111827; }} QComboBox::drop-down {{ border: none; width: 30px; }} QComboBox QAbstractItemView {{ border: 1px solid #E5E7EB; border-radius: 8px; background-color: #FFFFFF; outline: 0px; padding: 5px; }} QComboBox QAbstractItemView::item {{ min-height: 38px; padding-left: 10px; border-radius: 5px; color: #374151; }} QComboBox QAbstractItemView::item:selected {{ background-color: #EFF6FF; color: #1D4ED8; }}")
@@ -738,7 +763,9 @@ class ReservationPane(QFrame):
             
             # Đổ dữ liệu vào Form
             self.txt_name.setText(res_data['CustomerName'])
-            self.txt_phone.setText(res_data['Phone'] if res_data['Phone'] else "")
+            phone = res_data['Phone'] if res_data['Phone'] else ""
+            masked = f"{phone[:3]}****{phone[-3:]}" if phone and len(phone) >= 7 else phone
+            self.txt_phone.setText(masked)
             self.txt_address.setText(res_data['Address'] if res_data['Address'] else "")
             self.txt_guests.setText(str(res_data['GuestCount']))
             
@@ -752,9 +779,12 @@ class ReservationPane(QFrame):
             self.mode = 'edit'; self.set_fields_readonly(False)
             self.btn_edit.setText("Discard")
             self.btn_save.setText("Save Changes")
+            # Hiện số thật khi edit
+            real_phone = self.res_data['Phone'] if self.res_data and self.res_data['Phone'] else ""
+            self.txt_phone.setText(real_phone)
             self.validate_form()
         elif self.mode == 'edit':
-            self.show_pane(self.table_id, self.res_data) # Hủy bỏ thay đổi
+            self.show_pane(self.table_id, self.res_data) # Hủy bỏ thay đổi (sẽ mask lại)
 
     # HÀM MỚI: TỰ ĐỘNG ĐIỀN THÔNG TIN KHÁCH HÀNG KHI GÕ SĐT
     def auto_fill_customer(self):
@@ -792,6 +822,35 @@ class ReservationPane(QFrame):
                 self.reservation_updated.emit(); self.hide()
 
     def update_calendar_header(self, year, month): self.lbl_month_year.setText(QDate(year, month, 1).toString("yyyy MMM").upper())
+    
+    def apply_past_dates_style(self):
+        today = QDate.currentDate()
+        fmt_past = QTextCharFormat()
+        fmt_past.setForeground(QColor('#D1D5DB'))       # xám nhạt
+        fmt_past.setBackground(Qt.transparent)
+        fmt_past.setFontStrikeOut(False)
+
+        fmt_clear = QTextCharFormat()                   # reset ngày hiện tại trở đi
+
+        # Tô xám tất cả ngày từ đầu tháng đang xem đến hôm qua
+        page_year  = self.calendar.yearShown()
+        page_month = self.calendar.monthShown()
+        first_of_month = QDate(page_year, page_month, 1)
+        yesterday = today.addDays(-1)
+
+        d = first_of_month
+        while d <= yesterday:
+            self.calendar.setDateTextFormat(d, fmt_past)
+            d = d.addDays(1)
+
+        # Reset từ hôm nay đến cuối tháng (tránh lỗi khi navigate)
+        end_of_month = QDate(page_year, page_month,
+                            QDate(page_year, page_month, 1).daysInMonth())
+        d = today
+        while d <= end_of_month:
+            self.calendar.setDateTextFormat(d, fmt_clear)
+            d = d.addDays(1)
+        
     def update_date_input(self, date): self.txt_selected_date.setText(date.toString("yyyy-MM-dd"))
     
     def validate_form(self):
@@ -1093,6 +1152,206 @@ class DashboardWindow(QWidget):
 
     def open_menu(self):
         self.menu_window = MenuWindow(self.selected_table_id, self); self.menu_window.showFullScreen(); self.hide()
+    
+# ==========================================
+# 7. CASHIER DASHBOARD (FLOOR + CUSTOMERS + INVOICES)
+# ==========================================
+class CashierDashboard(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setStyleSheet("background-color: #F3F4F6;")
+        self._build_ui()
+
+    def _build_ui(self):
+        from manager import CustomersWidget, InvoicesWidget, EditCustomerPage, db_manager as mgr_db
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # --- SIDEBAR TRÁI ---
+        self.sidebar = QFrame()
+        self.sidebar.setFixedWidth(220)
+        self.sidebar.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7B1D42, stop:1 #4A0012);
+                border: none;
+            }
+        """)
+        sb_lay = QVBoxLayout(self.sidebar)
+        sb_lay.setContentsMargins(15, 40, 15, 30)
+        sb_lay.setSpacing(8)
+
+        lbl_brand = QLabel("Maison\ndes Rêves")
+        lbl_brand.setFont(QFont('Nunito', 14, QFont.Bold))
+        lbl_brand.setStyleSheet("color: #FFFFFF; background: transparent; border: none;")
+        lbl_brand.setAlignment(Qt.AlignCenter)
+        sb_lay.addWidget(lbl_brand)
+        sb_lay.addSpacing(30)
+
+        def make_tab_btn(icon_name, label, index):
+            btn = QPushButton(qta.icon(icon_name, color='#FFFFFF'), f"   {label}")
+            btn.setIconSize(QSize(18, 18))
+            btn.setFont(QFont('Nunito', 11, QFont.Bold))
+            btn.setFixedHeight(48)
+            btn.setCursor(QCursor(Qt.PointingHandCursor))
+            btn.setCheckable(True)
+            btn.setStyleSheet("""
+                QPushButton { background: transparent; color: #FFFFFF; border: none;
+                    border-radius: 10px; padding: 0 15px; text-align: left; }
+                QPushButton:hover { background: rgba(255,255,255,0.12); }
+                QPushButton:checked { background: rgba(255,255,255,0.22); }
+            """)
+            btn.clicked.connect(lambda _, i=index: self._switch_tab(i))
+            return btn
+
+        self.btn_floor = make_tab_btn("fa5s.th-large", "Floor Plan", 0)
+        self.btn_customers = make_tab_btn("fa5s.users", "Customers", 1)
+        self.btn_invoices = make_tab_btn("fa5s.file-invoice", "Invoices", 2)
+        self.btn_floor.setChecked(True)
+
+        sb_lay.addWidget(self.btn_floor)
+        sb_lay.addWidget(self.btn_customers)
+        sb_lay.addWidget(self.btn_invoices)
+        sb_lay.addStretch()
+
+        btn_logout = QPushButton(qta.icon('fa5s.sign-out-alt', color='#FFFFFF'), "   Logout")
+        btn_logout.setFont(QFont('Nunito', 11, QFont.Bold))
+        btn_logout.setFixedHeight(44)
+        btn_logout.setCursor(QCursor(Qt.PointingHandCursor))
+        btn_logout.setStyleSheet("""
+            QPushButton { background: rgba(255,255,255,0.1); color: #FFFFFF; border: none;
+                border-radius: 10px; padding: 0 15px; text-align: left; }
+            QPushButton:hover { background: rgba(255,255,255,0.2); }
+        """)
+        btn_logout.clicked.connect(self._handle_logout)
+        sb_lay.addWidget(btn_logout)
+
+        root.addWidget(self.sidebar)
+
+        # --- CONTENT AREA ---
+        self.stack = QStackedWidget()
+        self.stack.setStyleSheet("background: transparent;")
+
+        # Tab 0: Floor Plan (dùng lại toàn bộ DashboardWindow)
+        self.floor_view = DashboardWindow()
+        # Ẩn sidebar khi mở reservation form
+        original_show_pane = self.floor_view.reserve_pane.show_pane
+        def patched_show_pane(*args, **kwargs):
+            self.sidebar.hide()
+            original_show_pane(*args, **kwargs)
+        self.floor_view.reserve_pane.show_pane = patched_show_pane
+
+        # Hiện lại sidebar khi form đóng (bắt TẤT CẢ các cách đóng)
+        def _restore_sidebar():
+            self.sidebar.show()
+
+        self.floor_view.reserve_pane.reservation_created.connect(lambda _: _restore_sidebar())
+        self.floor_view.reserve_pane.reservation_deleted.connect(lambda _: _restore_sidebar())
+        self.floor_view.reserve_pane.reservation_updated.connect(_restore_sidebar)
+        self.floor_view.reserve_pane.occupy_created.connect(lambda _: _restore_sidebar())
+
+        # Bắt thêm nút X (close button bên trong pane)
+        self.floor_view.reserve_pane.btn_close.clicked.connect(_restore_sidebar)
+
+        # Override logout và exit
+        self.floor_view.handle_logout = self._handle_logout
+        for btn in self.floor_view.findChildren(QPushButton):
+            if "Exit" in btn.text():
+                btn.disconnect()
+                btn.clicked.connect(self.close)
+                break
+
+        self.stack.addWidget(self.floor_view)  # index 0
+
+        # Tab 1: Customers (từ manager.py) — ẩn nút xóa
+        self.customers_view = CustomersWidget()
+        self.customers_view.btn_export.hide()  # Ẩn nút Export với Cashier
+        # Kết nối edit (xem + sửa được)
+        self.edit_customer_page = EditCustomerPage()
+        self.stack.addWidget(self.customers_view)   # index 1
+        self.stack.addWidget(self.edit_customer_page)  # index 3 (dùng nội bộ)
+
+        self.customers_view.edit_requested.connect(self._open_edit_customer)
+        self.edit_customer_page.cancelled.connect(lambda: (self.stack.setCurrentWidget(self.customers_view), self._switch_tab(1)))
+        self.edit_customer_page.customer_saved.connect(self._on_customer_saved)
+
+        # Ẩn nút xóa (btn_cancel) trong customers_view sau khi load
+        self.customers_view.load_mock_data()
+        self._hide_delete_buttons()
+        # Hook lại load_mock_data để tự động ẩn nút xóa sau mỗi lần refresh
+        original_load = self.customers_view.load_mock_data
+        def patched_load(*args, **kwargs):
+            original_load(*args, **kwargs)
+            self._hide_delete_buttons()
+        self.customers_view.load_mock_data = patched_load
+
+        # Tab 2: Invoices (từ manager.py) — read-only, không có nút xóa
+        self.invoices_view = InvoicesWidget()
+        self.stack.addWidget(self.invoices_view)    # index 2
+
+        # ReceiptPage để xem chi tiết invoice
+        from manager import ReceiptPage
+        self.receipt_page = ReceiptPage()
+        self.stack.addWidget(self.receipt_page)     # index 4
+
+        self.invoices_view.view_receipt_requested.connect(self._show_receipt)
+        self.receipt_page.close_receipt.connect(self._hide_receipt)
+
+        root.addWidget(self.stack, stretch=1)
+        self._switch_tab(0)
+
+    def _hide_delete_buttons(self):
+        """Ẩn toàn bộ nút X (xóa) trong bảng Customers."""
+        table = self.customers_view.table
+        for row in range(table.rowCount()):
+            cell_widget = table.cellWidget(row, 6)
+            if cell_widget:
+                # Tìm QPushButton có icon times (nút X) và ẩn đi
+                buttons = cell_widget.findChildren(QPushButton)
+                if len(buttons) >= 2:
+                    buttons[-1].hide()  # btn_cancel là nút cuối cùng
+
+    def _switch_tab(self, index):
+        tab_map = {0: self.btn_floor, 1: self.btn_customers, 2: self.btn_invoices}
+        for i, btn in tab_map.items():
+            btn.setChecked(i == index)
+        # Stack index: 0=floor, 1=customers, 2=invoices (edit_customer là index 3, không phải tab)
+        stack_index = index if index < 2 else index + 1  # bỏ qua index 2 (edit page)
+        # Mapping thực: floor=0, customers=1, edit=2(ẩn), invoices=3
+        real_map = {0: 0, 1: 1, 2: 3}
+        self.stack.setCurrentIndex(real_map[index])
+
+    def _open_edit_customer(self, cid, name, phone, address):
+        self.edit_customer_page.load_data(cid, name, phone, address)
+        self.stack.setCurrentWidget(self.edit_customer_page)
+
+    def _on_customer_saved(self):
+        self.stack.setCurrentWidget(self.customers_view)
+        self.customers_view.load_mock_data()
+        self._switch_tab(1)
+
+    def _show_receipt(self, inv_id, cust, ph, tab, dt, subt, svc, disc, tot):
+        self.receipt_page.load_receipt(inv_id, cust, ph, tab, dt, subt, svc, disc, tot)
+        self._last_tab = self.stack.currentIndex()
+        self.stack.setCurrentWidget(self.receipt_page)
+
+    def _hide_receipt(self):
+        self.stack.setCurrentIndex(self._last_tab if hasattr(self, '_last_tab') else 3)
+        self._switch_tab(2)
+
+    def _handle_logout(self):
+        from login import LoginWindow
+        self.login_window = LoginWindow()
+        self.login_window.show()
+        self.hide()
+        self.floor_view.setParent(None)
+        self.deleteLater()
+    
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.close()
 
 # ==========================================
 # BOOTSTRAP 

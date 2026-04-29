@@ -192,7 +192,7 @@ INSERT INTO DiningTables (TableNumber, Status) VALUES
 ('T07',  'Available'),
 ('T08',  'Occupied'),
 ('T09',  'Reserved'),
-('VIP1', 'Available');
+('T10', 'Available');
 
 -- -----------------------------------------------------------------------------
 -- 3. MenuItems (10 rows)
@@ -220,7 +220,7 @@ INSERT INTO Expenses (ExpenseCategory, Description, Amount, ExpenseDate) VALUES
 ('Maintenance', 'Kitchen equipment repair',                3500000.00, '2026-04-15 00:00:00'),
 ('Ingredients', 'Premium cream cheese & baking supplies',  1500000.00, '2026-04-09 00:00:00'),
 ('Ingredients', 'Imported Red Wine restock',              1000000.00, '2026-04-10 00:00:00'),
-('Payroll',     'Manager Wages',               10000000.00, '2026-04-18 00:00:00'),
+('Payroll',     'Manager Wages',               7000000.00, '2026-04-18 00:00:00'),
 ('Utilities',   'Water bill March',                        1200000.00, '2026-04-19 00:00:00'),
 ('Supplies',    'Dining napkins & candles',                 300000.00, '2026-04-20 00:00:00');
 
@@ -244,16 +244,16 @@ INSERT INTO Reservations (DateTime, GuestCount, CustomerID, TableID) VALUES
 -- NULL PaymentDate = invoice not yet settled
 -- -----------------------------------------------------------------------------
 INSERT INTO Invoices (TotalAmount, PaymentDate, CustomerID, TableID) VALUES
-(4150000.00, '2026-04-12 19:30:00',  1,  3),
-(3800000.00, '2026-04-15 18:45:00',  2,  1),
-(1550000.00, NULL,                   3,  2),
-( 500000.00, '2026-04-16 19:00:00',  4,  4),
-(2700000.00, '2026-04-17 21:00:00',  5,  5),
-(1950000.00, '2026-04-18 18:30:00',  6,  6),
-(2260000.00, '2026-04-18 20:45:00',  7,  7),
-( 360000.00, NULL,                   8,  8),
-( 600000.00, '2026-04-19 21:30:00',  9,  9),
-( 550000.00, '2026-04-20 20:00:00', 10, 10);
+(4567500.00, '2026-04-12 19:30:00',  1,  3),
+(3990000.00, '2026-04-15 18:45:00',  2,  1),
+(1650000.00, NULL,                   3,  2),
+( 550000.00, '2026-04-16 19:00:00',  4,  4),
+(2970000.00, '2026-04-17 21:00:00',  5,  5),
+(2145000.00, '2026-04-18 18:30:00',  6,  6),
+(2420000.00, '2026-04-18 20:45:00',  7,  7),
+( 396000.00, NULL,                   8,  8),
+( 660000.00, '2026-04-19 21:30:00',  9,  9),
+( 605000.00, '2026-04-20 20:00:00', 10, 10);
 
 -- -----------------------------------------------------------------------------
 -- 7. OrderDetails (20 rows)
@@ -467,7 +467,6 @@ DROP ROLE IF EXISTS 'admin_role', 'cashier_role', 'waiter_role';
 DROP USER IF EXISTS 'john_admin'@'localhost';
 DROP USER IF EXISTS 'mary_cashier'@'localhost';
 DROP USER IF EXISTS 'peter_waiter'@'localhost';
-DROP USER IF EXISTS 'peter_waiter'@'localhost';
 
 -- Flush privilege cache before recreating
 FLUSH PRIVILEGES;
@@ -507,8 +506,8 @@ GRANT REPLICATION CLIENT ON *.* TO 'john_admin'@'localhost';
 -- Step 5: Assign permissions per role
 -- -----------------------------------------------------------------------------
 
--- Waiter: read and write access (no delete)
-GRANT SELECT, INSERT, UPDATE ON restaurant_db.* TO 'waiter_role';
+-- Waiter: read and write access
+GRANT SELECT, INSERT, UPDATE, DELETE ON restaurant_db.* TO 'waiter_role';
 
 -- Cashier: full data manipulation access (no DDL)
 GRANT SELECT, INSERT, UPDATE, DELETE ON restaurant_db.* TO 'cashier_role';
@@ -537,11 +536,12 @@ WHERE CustomerID > 0
   AND PhoneNumber NOT REGEXP '^[0-9A-F]{32}$';
 
 -- -----------------------------------------------------------------------------
--- [2] Dynamic Data Masking: Restricted view for Waiter role
--- Decrypts the phone number on the fly and masks the middle 4 digits
--- (e.g., 090****567) to limit PII exposure while preserving usability.
+-- [2] Secure Data Masking: General view for UI display
+-- Purpose: Decrypts phone numbers on the fly and masks sensitive digits.
+-- This view is used across various UI components (Reservation Info, Customer Tab) 
+-- to prevent "shoulder-surfing" and limit PII exposure for non-admin operations.
 -- -----------------------------------------------------------------------------
-CREATE VIEW View_Waiter_CustomerData AS
+CREATE VIEW View_MaskedCustomerInfo AS
 SELECT
     CustomerName,
     CONCAT(

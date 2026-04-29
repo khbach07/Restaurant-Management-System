@@ -219,12 +219,15 @@ class LoginWindow(QWidget):
             # ROUTING: Mở đúng cửa sổ dựa theo role
             # -----------------------------------------------
             if role == 'admin':
-                from manager import ManagerDashboard, db_manager as mgr_db
+                from manager import ManagerDashboard
                 self.next_window = ManagerDashboard()
-                self.next_window.showMaximized()
+                self.next_window.showFullScreen()
+            elif role == 'cashier':
+                from dashboard import CashierDashboard
+                self.next_window = CashierDashboard()
+                self.next_window.showFullScreen()
             else:
-                # cashier hoặc waiter đều vào DashboardWindow
-                from dashboard import DashboardWindow, db_manager as dash_db
+                from dashboard import DashboardWindow
                 self.next_window = DashboardWindow()
                 self.next_window.showFullScreen()
 

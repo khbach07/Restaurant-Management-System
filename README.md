@@ -1,4 +1,4 @@
-# 🍽️ Maison de Rêve - Luxury Restaurant Management System
+# 🍽️ Maison des Rêves - Luxury Restaurant Management System
 
 A comprehensive, modern desktop application designed to streamline operations for a fine-dining restaurant. Built with **Python (PyQt5)** and powered by a robust **MySQL** database, this system features role-based access control, interactive POS dashboards, advanced financial analytics, and robust data security.
 
@@ -7,7 +7,7 @@ A comprehensive, modern desktop application designed to streamline operations fo
 ### 🔐 Role-Based Access Control (RBAC) & Security
 * **Multi-Tiered Logins**: Secure access mapped directly to MySQL database users (`Admin`, `Cashier`, `Waiter`).
 * **AES-256 Encryption**: Customer phone numbers are heavily encrypted at the database level to protect PII (Personally Identifiable Information).
-* **Dynamic Data Masking**: Lower-privileged roles (like Waiters) view masked customer data (e.g., `090****567`) via secure SQL views.
+* **Secure Data Masking**: General UI components display masked customer data (e.g., `090****567`) via the `View_MaskedCustomerInfo` SQL view to prevent shoulder-surfing while preserving usability.
 
 ### 🖥️ Staff POS Dashboard (Cashiers & Waiters)
 * **Real-Time Floor Plan**: Visual representation of dining tables with color-coded statuses (Available, Occupied, Reserved).
@@ -23,6 +23,9 @@ A comprehensive, modern desktop application designed to streamline operations fo
   * Bar Charts (Orders overview).
 * **CRUD Management Operations**: Full control over Menu Items, Operating Expenses, Customer Data, and Invoices.
 * **CSV Export**: Export customer and invoice reports directly to your local drive.
+
+### 💾 Data Management
+* **Automated Database Backup**: Dedicated Python script to securely generate timestamped MySQL dumps utilizing environment variables.
 
 ---
 
@@ -60,14 +63,13 @@ pip install -r requirements.txt
    * Apply AES-256 encryption to the mock customer data.
 
 ### 4. Environment Variables
-Create a `.env` file in the root directory of the project (if you are overriding default localhost settings):
+Create a `.env` file in the root directory of the project to securely manage database credentials without hardcoding them:
 ```env
 DB_HOST=localhost
 DB_USER=root
 DB_PASSWORD=your_mysql_root_password
 DB_NAME=restaurant_db
 ```
-*(Note: The login screen will use the specific role credentials to connect, but background tasks may use these env variables).*
 
 ---
 
@@ -88,10 +90,10 @@ The `schema.sql` script creates three default accounts for testing. Use these on
 * `gui_login.py`: The entry point. Handles authentication, floating UI, and routes users to their respective dashboards based on MySQL roles.
 * `gui_dashboard.py`: The main POS application for Waiters and Cashiers (Table maps, Orders, Reservations).
 * `gui_manager.py`: The administrative panel featuring KPI metrics, charts, and CRUD capabilities.
+* `backup.py`: Automated script for generating timestamped SQL database dumps.
 * `schema.sql`: Complete database architecture including tables, constraints, triggers, and stored procedures.
 * `requirements.txt`: Python package dependencies.
 * `menu_images/`: Directory storing local images for the menu items.
-* `fine_dining1.jpg`: High-quality background asset used in the login portal.
 
 ---
 
@@ -119,3 +121,21 @@ Once the login screen appears, you can explore different facets of the applicati
 2. **Staff POS View**: Log in with `peter_waiter` or `mary_cashier` to access the interactive Floor Plan, process customer orders, and manage table reservations.
 
 *💡 Tip: Press `ESC` at any time while on the login or dashboard screens to safely exit the POS system.*
+
+---
+
+## 🔄 Backup & Recovery
+
+### Automated Backup
+Generate a secure, timestamped backup of your MySQL database. The script reads credentials directly from your `.env` file.
+```bash
+python backup.py
+```
+*Backups are saved by default to `C:/Restaurant_Backups/`.*
+
+### Recovery Procedure
+To restore the database from a backup file in case of system failure, open your Command Prompt (CMD) and run:
+```cmd
+mysql -u root -p restaurant_db < C:\Restaurant_Backups\restaurant_db_YYYYMMDD.sql
+```
+*(Note: Ensure the `restaurant_db` database exists before running the restore command. If the database was entirely dropped, log into MySQL and run `CREATE DATABASE restaurant_db;` first).*

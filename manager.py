@@ -953,6 +953,8 @@ class CustomersWidget(QWidget):
                 self.load_mock_data()
             else:
                 ModernPopup("Delete Failed", msg, "fa5s.times-circle", self.window()).exec_()
+    def _on_view_phone(self, name, raw_phone):
+        ModernPopup("Phone Number", f"{name}: {raw_phone}", "fa5s.phone", self.window()).exec_()
 
     def load_mock_data(self):
         st = self.txt_search.text().strip().lower()
@@ -985,16 +987,19 @@ class CustomersWidget(QWidget):
                 self.table.setItem(r, c, item)
             
             act_w = QWidget(); act_l = QHBoxLayout(act_w); act_l.setContentsMargins(0,0,0,0); act_l.setAlignment(Qt.AlignCenter)
+            btn_view = QPushButton(qta.icon('fa5s.eye', color='#6B7280'), ""); btn_view.setFixedSize(35, 35); btn_view.setCursor(QCursor(Qt.PointingHandCursor))
+            btn_view.setStyleSheet("QPushButton { background: transparent; border: 1px solid #D1D5DB; border-radius: 6px; } QPushButton:hover { border-color: #6B7280; }")
             btn_edit = QPushButton(qta.icon('fa5s.pen', color='#6B7280'), ""); btn_edit.setFixedSize(35, 35); btn_edit.setCursor(QCursor(Qt.PointingHandCursor))
             btn_edit.setStyleSheet("QPushButton { background: transparent; border: 1px solid #D1D5DB; border-radius: 6px; } QPushButton:hover { border-color: #6B7280; }")
             btn_cancel = QPushButton(qta.icon('fa5s.times', color='#6B7280'), ""); btn_cancel.setFixedSize(35, 35); btn_cancel.setCursor(QCursor(Qt.PointingHandCursor))
             btn_cancel.setStyleSheet("QPushButton { background: transparent; border: 1px solid #D1D5DB; border-radius: 6px; } QPushButton:hover { border-color: #EF4444; }")
-            
+
             cid_str = d[0]; c_name = d[1]; c_raw_phone = d[6]; c_raw_addr = d[7]
+            btn_view.clicked.connect(lambda checked, rn=c_name, rp=c_raw_phone: self._on_view_phone(rn, rp))
             btn_edit.clicked.connect(lambda checked, rid=cid_str, rn=c_name, rp=c_raw_phone, ra=c_raw_addr: self.edit_requested.emit(rid, rn, rp, ra)) # KÍCH HOẠT SỰ KIỆN EDIT
             btn_cancel.clicked.connect(lambda checked, rid=cid_str: self._on_delete(rid))
-            
-            act_l.addWidget(btn_edit); act_l.addSpacing(5); act_l.addWidget(btn_cancel)
+
+            act_l.addWidget(btn_view); act_l.addSpacing(5); act_l.addWidget(btn_edit); act_l.addSpacing(5); act_l.addWidget(btn_cancel)
             self.table.setCellWidget(r, 6, act_w)
         self.update_pagination_ui()
         
@@ -1299,6 +1304,31 @@ class ReservationsWidget(QWidget):
     def _on_search(self):
         self.current_page = 1; self.load_mock_data()
 
+    def _on_delete(self, res_id_str):
+        confirm = ModernConfirmPopup(
+            "Cancel Reservation",
+            f"Are you sure you want to cancel {res_id_str}?\nThis action cannot be undone.",
+            "fa5s.exclamation-triangle",
+            self.window()
+        )
+        if confirm.exec_() == QDialog.Accepted:
+            try:
+                rid = int(res_id_str.replace('RES', ''))
+                conn = db_manager.connect()
+                cursor = conn.cursor()
+                cursor.execute("SELECT TableID FROM Reservations WHERE ReservationID = %s", (rid,))
+                res = cursor.fetchone()
+                if res:
+                    table_id = res[0]
+                    cursor.execute("DELETE FROM Reservations WHERE ReservationID = %s", (rid,))
+                    cursor.execute("UPDATE DiningTables SET Status = 'Available' WHERE TableID = %s", (table_id,))
+                    conn.commit()
+                conn.close()
+                ModernPopup("Success", f"{res_id_str} has been cancelled.", "fa5s.check-circle", self.window()).exec_()
+                self.load_mock_data()
+            except Exception as e:
+                ModernPopup("Error", str(e), "fa5s.times-circle", self.window()).exec_()
+
     def load_mock_data(self):
         st = self.txt_search.text().strip().lower()
         raw_data = db_manager.get_reservations(search_keyword=st)
@@ -1333,6 +1363,8 @@ class ReservationsWidget(QWidget):
             act_w = QWidget(); act_l = QHBoxLayout(act_w); act_l.setContentsMargins(0,0,0,0); act_l.setAlignment(Qt.AlignCenter)
             btn_cancel = QPushButton(qta.icon('fa5s.times', color='#6B7280'), ""); btn_cancel.setFixedSize(35, 35); btn_cancel.setCursor(QCursor(Qt.PointingHandCursor))
             btn_cancel.setStyleSheet("QPushButton { background: transparent; border: 1px solid #D1D5DB; border-radius: 6px; } QPushButton:hover { border-color: #EF4444; }")
+            res_id_str = data[0]
+            btn_cancel.clicked.connect(lambda checked, rid=res_id_str: self._on_delete(rid))
             act_l.addWidget(btn_cancel)
             self.table.setCellWidget(row, 6, act_w)
             
@@ -1446,7 +1478,7 @@ class ReceiptPage(QWidget):
         self.lbl_title.setFont(bordeaux_num_font)
         self.lbl_title.setStyleSheet("border: none; background: transparent; margin: 0; padding: 0;")
         
-        lbl_sub = QLabel("MAISON DE RÊVE")
+        lbl_sub = QLabel("MAISON DES RÊVES")
         lbl_sub.setStyleSheet("color: #9CA3AF; font-family: 'Nunito'; font-weight: 800; font-size: 14px; border: none; background: transparent; letter-spacing: 1px; margin: 0; padding: 0;")
         
         title_vbox.addWidget(self.lbl_title)
@@ -1637,7 +1669,7 @@ class ManagerDashboard(QWidget):
     def initUI(self):
         main_layout = QHBoxLayout(self); main_layout.setContentsMargins(20, 20, 20, 20); main_layout.setSpacing(20)
         sidebar = QFrame(); sidebar.setFixedWidth(260); sidebar.setStyleSheet(f"QFrame {{ background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 {BRIGHT_RED}, stop: 1 #4A0012); border-radius: 25px; }}"); side_layout = QVBoxLayout(sidebar); side_layout.setContentsMargins(20, 40, 20, 40)
-        lbl_logo = QLabel("MAISON DE RÊVE"); lbl_logo.setFont(QFont('Nunito', 14, QFont.Bold)); lbl_logo.setStyleSheet("color: #FFFFFF; border: none; letter-spacing: 2px; background: transparent;"); lbl_logo.setAlignment(Qt.AlignCenter); side_layout.addWidget(lbl_logo); side_layout.addSpacing(50)
+        lbl_logo = QLabel("MAISON\n DES RÊVES"); lbl_logo.setFont(QFont('Nunito', 14, QFont.Bold)); lbl_logo.setStyleSheet("color: #FFFFFF; border: none; letter-spacing: 2px; background: transparent;"); lbl_logo.setAlignment(Qt.AlignCenter); side_layout.addWidget(lbl_logo); side_layout.addSpacing(50)
         
         self.btn_dash = SidebarButton("fa5s.chart-bar", "Dashboard", is_active=True)
         self.btn_cust = SidebarButton("fa5s.user", "Customers")
