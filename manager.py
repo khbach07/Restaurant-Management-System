@@ -2,6 +2,7 @@ import sys
 import os
 import csv
 import shutil
+import datetime
 import numpy as np
 import pymysql                 # BẠN THÊM DÒNG NÀY VÀO
 import pymysql.cursors
@@ -18,6 +19,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.patches as patches
 import matplotlib.patheffects as pe
+import matplotlib.ticker as mticker
 
 try:
     from scipy.interpolate import make_interp_spline
@@ -470,7 +472,7 @@ class ChartCard(QFrame):
         shadow = QGraphicsDropShadowEffect(); shadow.setBlurRadius(20); shadow.setColor(QColor(0,0,0,8)); shadow.setOffset(0,4); self.setGraphicsEffect(shadow)
         self.layout = QVBoxLayout(self); self.layout.setContentsMargins(25, 25, 25, 20)
         header = QHBoxLayout(); lbl_title = QLabel(title); lbl_title.setFont(QFont('Nunito', 15, QFont.Bold)); lbl_title.setStyleSheet("color: #111827; border: none;")
-        self.dropdown = QComboBox(); self.dropdown.addItems(["This Week", "Last Week", "This Month"]); self.dropdown.setCursor(QCursor(Qt.PointingHandCursor))
+        self.dropdown = QComboBox(); self.dropdown.addItems(["This Week", "Last Week", "Last Month"]); self.dropdown.setCursor(QCursor(Qt.PointingHandCursor))
         self.dropdown.setStyleSheet("QComboBox { background-color: #FFFFFF; color: #4B5563; font-family: 'Nunito'; font-weight: bold; font-size: 13px; border: 1px solid #D1D5DB; border-radius: 6px; padding: 6px 12px; } QComboBox:hover { border: 1px solid #9CA3AF; } QComboBox::drop-down { border: none; width: 24px; }")
         header.addWidget(lbl_title); header.addStretch(); header.addWidget(self.dropdown); self.layout.addLayout(header)
         
@@ -544,31 +546,53 @@ class ChartCard(QFrame):
     def _get_agg_data(self):
         period = self.dropdown.currentText()
         invs, exps, resvs = db_manager.get_chart_raw_data()
-        import datetime
+        today = datetime.date.today()
         income = np.zeros(7); expense = np.zeros(7); orders = np.zeros(7)
-        if period == "This Month":
+
+        def to_date(value):
+            if isinstance(value, datetime.datetime):
+                return value.date()
+            return value
+
+        if period == "Last Month":
             income = np.zeros(4); expense = np.zeros(4); orders = np.zeros(4)
+            week_start = today - datetime.timedelta(days=today.weekday())
+            week_starts = [week_start - datetime.timedelta(days=21),
+                           week_start - datetime.timedelta(days=14),
+                           week_start - datetime.timedelta(days=7),
+                           week_start]
+            week_ends = [s + datetime.timedelta(days=6) for s in week_starts]
             for r in invs:
-                w = min(3, (r['PaymentDate'].day - 1) // 7)
-                income[w] += float(r['TotalAmount']); orders[w] += 1
+                d = to_date(r['PaymentDate'])
+                for i, (start, end) in enumerate(zip(week_starts, week_ends)):
+                    if start <= d <= end:
+                        income[i] += float(r['TotalAmount']); orders[i] += 1
+                        break
             for r in exps:
-                w = min(3, (r['ExpenseDate'].day - 1) // 7)
-                expense[w] += float(r['Amount'])
+                d = to_date(r['ExpenseDate'])
+                for i, (start, end) in enumerate(zip(week_starts, week_ends)):
+                    if start <= d <= end:
+                        expense[i] += float(r['Amount'])
+                        break
             return ['Week 1', 'Week 2', 'Week 3', 'Week 4'], income, expense, orders
         else:
-            # Phân tách 2 tuần trong April 2026 (Tuần 15-21 và Tuần 8-14)
+            week_start = today - datetime.timedelta(days=today.weekday())
+            last_week_start = week_start - datetime.timedelta(days=7)
+            week_end = week_start + datetime.timedelta(days=6)
+            last_week_end = last_week_start + datetime.timedelta(days=6)
+
             for r in invs:
-                day = r['PaymentDate'].day; wd = r['PaymentDate'].weekday()
-                if period == "This Week" and day >= 15:
-                    income[wd] += float(r['TotalAmount']); orders[wd] += 1
-                elif period == "Last Week" and day < 15:
-                    income[wd] += float(r['TotalAmount']); orders[wd] += 1
+                d = to_date(r['PaymentDate'])
+                if period == "This Week" and week_start <= d <= week_end:
+                    wd = d.weekday(); income[wd] += float(r['TotalAmount']); orders[wd] += 1
+                elif period == "Last Week" and last_week_start <= d <= last_week_end:
+                    wd = d.weekday(); income[wd] += float(r['TotalAmount']); orders[wd] += 1
             for r in exps:
-                day = r['ExpenseDate'].day; wd = r['ExpenseDate'].weekday()
-                if period == "This Week" and day >= 15:
-                    expense[wd] += float(r['Amount'])
-                elif period == "Last Week" and day < 15:
-                    expense[wd] += float(r['Amount'])
+                d = to_date(r['ExpenseDate'])
+                if period == "This Week" and week_start <= d <= week_end:
+                    wd = d.weekday(); expense[wd] += float(r['Amount'])
+                elif period == "Last Week" and last_week_start <= d <= last_week_end:
+                    wd = d.weekday(); expense[wd] += float(r['Amount'])
             return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], income, expense, orders
 
     def draw_line_chart(self):
@@ -579,7 +603,10 @@ class ChartCard(QFrame):
             x_idx = np.arange(len(days)); x_sm = np.linspace(x_idx.min(), x_idx.max(), 300); spl1 = make_interp_spline(x_idx, income, k=3); spl2 = make_interp_spline(x_idx, expense, k=3)
             self.ax.plot(x_sm, spl1(x_sm), color=BRIGHT_RED, linewidth=3); self.ax.plot(x_sm, spl2(x_sm), color=EXPENSE_GREY, linewidth=3); self.ax.fill_between(x_sm, spl1(x_sm), alpha=0.08, color=BRIGHT_RED); self.ax.fill_between(x_sm, spl2(x_sm), alpha=0.05, color=EXPENSE_GREY)
         else: self.ax.plot(days, income, color=BRIGHT_RED, linewidth=3); self.ax.plot(days, expense, color=EXPENSE_GREY, linewidth=3)
-        self.ax.plot(self.x_data, income, 'o', markersize=6, color=BRIGHT_RED); self.ax.plot(self.x_data, expense, 'o', markersize=6, color=EXPENSE_GREY); self.format_ax(days); self.canvas.draw()
+        self.ax.plot(self.x_data, income, 'o', markersize=6, color=BRIGHT_RED); self.ax.plot(self.x_data, expense, 'o', markersize=6, color=EXPENSE_GREY)
+        self.ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, pos: "0" if x == 0 else f"{x/1e6:.1f}".rstrip('0').rstrip('.')))
+        self.ax.set_ylabel("(million VND)", color='#6B7280', fontsize=10)
+        self.format_ax(days); self.canvas.draw()
 
     def draw_bar_chart(self):
         self.ax.clear()
@@ -596,22 +623,41 @@ class ChartCard(QFrame):
         period = self.dropdown.currentText()
         invs, exps, resvs = db_manager.get_chart_raw_data()
         
-        if period == "This Month":
+        if period == "Last Month":
             days = ['Week 1', 'Week 2', 'Week 3', 'Week 4']
             data = np.zeros((len(times), len(days)))
+            week_start = datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())
+            week_starts = [week_start - datetime.timedelta(days=21),
+                           week_start - datetime.timedelta(days=14),
+                           week_start - datetime.timedelta(days=7),
+                           week_start]
+            week_ends = [s + datetime.timedelta(days=6) for s in week_starts]
             for r in resvs:
                 d = r['DateTime']
-                w = min(3, (d.day - 1) // 7)
-                t_str = d.strftime('%H:%M')
-                if t_str in times: data[times.index(t_str), w] += 1
+                original_dt = d
+                if isinstance(d, datetime.datetime):
+                    d = d.date()
+                for i, (start, end) in enumerate(zip(week_starts, week_ends)):
+                    if start <= d <= end:
+                        t_str = original_dt.strftime('%H:%M')
+                        if t_str in times:
+                            data[times.index(t_str), i] += 1
+                        break
         else:
             days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
             data = np.zeros((len(times), len(days)))
+            week_start = datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())
+            last_week_start = week_start - datetime.timedelta(days=7)
+            week_end = week_start + datetime.timedelta(days=6)
+            last_week_end = last_week_start + datetime.timedelta(days=6)
+
             for r in resvs:
                 d = r['DateTime']
+                if isinstance(d, datetime.datetime):
+                    d = d.date()
                 wd = d.weekday()
-                if (period == "This Week" and d.day >= 15) or (period == "Last Week" and d.day < 15):
-                    t_str = d.strftime('%H:%M')
+                if (period == "This Week" and week_start <= d <= week_end) or (period == "Last Week" and last_week_start <= d <= last_week_end):
+                    t_str = r['DateTime'].strftime('%H:%M')
                     if t_str in times: data[times.index(t_str), wd] += 1
             
         self.chart_type = 'heatmap'; self.hm_data, self.x_labels, self.y_labels = data, days, times
