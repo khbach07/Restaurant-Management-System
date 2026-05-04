@@ -907,7 +907,7 @@ class DashboardWindow(QWidget):
         # FIX 2: Bỏ viền cho kính lúp
         lbl_search_icon.setStyleSheet("border: none; background: transparent;")
         self.txt_search = QLineEdit()
-        self.txt_search.setPlaceholderText("Search phone...")
+        self.txt_search.setPlaceholderText("Search customer...")
         self.txt_search.setStyleSheet("border: none; background: transparent; font-family: 'Nunito'; font-size: 14px; color: #111827;")
         self.txt_search.returnPressed.connect(self.search_customer)
         search_layout.addWidget(lbl_search_icon); search_layout.addWidget(self.txt_search)
