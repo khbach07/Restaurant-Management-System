@@ -206,20 +206,15 @@ class DatabaseManager:
             if not inv: 
                 conn.close()
                 return {}
-            cursor.execute("SELECT m.DishName, m.Category, od.Quantity, od.UnitPrice FROM OrderDetails od JOIN MenuItems m ON od.DishID = m.DishID WHERE od.InvoiceID = %s", (inv['InvoiceID'],))
+            cursor.execute(
+                "SELECT m.DishName, m.Category, m.ImageName, od.Quantity, od.UnitPrice "
+                "FROM OrderDetails od JOIN MenuItems m ON od.DishID = m.DishID "
+                "WHERE od.InvoiceID = %s",
+                (inv['InvoiceID'],)
+            )
             items = {}
             for row in cursor.fetchall():
-                img = "default.jpg"
-                if "Steak" in row['DishName']: img = "wagyu.jpg"
-                elif "Bisque" in row['DishName']: img = "lobster.jpg"
-                elif "Pasta" in row['DishName']: img = "truffle.jpg"
-                elif "Cheesecake" in row['DishName']: img = "cheesecake.jpg"
-                elif "Wine" in row['DishName']: img = "wine.jpg"
-                elif "Foie Gras" in row['DishName']: img = "foie_gras.jpg"
-                elif "Wellington" in row['DishName']: img = "wellington.jpg"
-                elif "Salmon" in row['DishName']: img = "salmon.jpg"
-                elif "Tiramisu" in row['DishName']: img = "tiramisu.jpg"
-                elif "Water" in row['DishName']: img = "water.jpg"
+                img = row.get('ImageName') or "default.jpg"
                 
                 items[row['DishName']] = {
                     'qty': row['Quantity'], 
@@ -259,6 +254,18 @@ class DatabaseManager:
             conn.close()
             return True
         except: return False
+
+    def get_menu_items(self):
+        try:
+            conn = self.connect()
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
+            cursor.execute("SELECT DishName, Price, ImageName, Category FROM MenuItems ORDER BY DishID ASC")
+            res = cursor.fetchall()
+            conn.close()
+            return res
+        except Exception as e:
+            print("DB Error (get_menu_items):", e)
+            return []
 
     def process_checkout(self, table_id, ordered_items):
         try:
@@ -410,12 +417,11 @@ class MenuWindow(QWidget):
         header_layout.addWidget(self.btn_back); header_layout.addSpacing(20); header_layout.addWidget(lbl_title); header_layout.addStretch()
         left_layout.addLayout(header_layout); left_layout.addSpacing(30)
 
+        raw = db_manager.get_menu_items()
         menu_items = [
-            {'name': 'Wagyu Ribeye Steak', 'price': 1500000, 'img': 'wagyu.jpg', 'cat': 'Main Course'}, {'name': 'Lobster Bisque', 'price': 450000, 'img': 'lobster.jpg', 'cat': 'Appetizer'},
-            {'name': 'Truffle Pasta', 'price': 650000, 'img': 'truffle.jpg', 'cat': 'Main Course'}, {'name': 'Basque Burnt Cheesecake', 'price': 250000, 'img': 'cheesecake.jpg', 'cat': 'Dessert'},
-            {'name': 'Bordeaux Red Wine', 'price': 1200000, 'img': 'wine.jpg', 'cat': 'Beverage'}, {'name': 'Pan-Seared Foie Gras', 'price': 850000, 'img': 'foie_gras.jpg', 'cat': 'Appetizer'},
-            {'name': 'Beef Wellington', 'price': 1800000, 'img': 'wellington.jpg', 'cat': 'Main Course'}, {'name': 'Grilled Salmon', 'price': 180000, 'img': 'salmon.jpg', 'cat': 'Main Course'},
-            {'name': 'Classic Tiramisu', 'price': 150000, 'img': 'tiramisu.jpg', 'cat': 'Dessert'}, {'name': 'Sparkling Water', 'price': 100000, 'img': 'water.jpg', 'cat': 'Beverage'}
+            {'name': item['DishName'], 'price': float(item['Price']),
+            'img': item['ImageName'] or 'default.jpg', 'cat': item['Category']}
+            for item in raw
         ]
         scroll_area = QScrollArea(); scroll_area.setWidgetResizable(True); scroll_area.setStyleSheet(MODERN_SCROLL)
         grid_widget = QWidget(); grid_widget.setStyleSheet("background-color: transparent;")
